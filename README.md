@@ -10,7 +10,7 @@ RepoGuideAI is an open-source onboarding workspace for public GitHub repositorie
 - Review GitHub repository metadata, language statistics, README, and root structure.
 - Browse folders and retrieve text files on demand (250 KB preview limit).
 - Search and filter real open GitHub issues. Beginner difficulty is only estimated from issue labels.
-- Ask a repository-grounded assistant and generate a contribution roadmap using a real configured inference provider.
+- Ask a repository-grounded assistant and generate a contribution roadmap using local Ollama/Gemma or a configured hosted inference provider.
 - Track a contribution checklist locally or persist it to a user account.
 - Register and sign in; save repositories and learning preferences in MongoDB.
 - Responsive editorial interface, keyboard-accessible controls, and light/dark themes.
@@ -78,7 +78,9 @@ npm start
 | `JWT_SECRET` | Accounts | Random secret of at least 32 characters used to sign sessions. |
 | `MONGODB_URI` | Accounts | MongoDB connection string. If absent/unavailable, public repository analysis still runs but account endpoints return a configuration error. |
 | `GITHUB_TOKEN` | GitHub API | Optional server-side token. Increases the rate limit; never expose it in Vite variables. |
-| `AI_PROVIDER` | AI | `google` (default) or `openai-compatible`. |
+| `AI_PROVIDER` | AI | `ollama` (default), `google`, or `openai-compatible`. |
+| `OLLAMA_BASE_URL` | Local AI | Ollama server URL; defaults to `http://127.0.0.1:11434`. |
+| `OLLAMA_MODEL` | Local AI | Model installed in Ollama; defaults to `gemma3:1b`. |
 | `GEMMA_MODEL` | Google AI | Google Generative Language API model ID; defaults to `gemma-3-27b-it`. Verify model availability for your account and region. |
 | `GEMMA_API_KEY` | Google AI | Server-only Google AI Studio API key. |
 | `AI_BASE_URL` | Local/compatible AI | Base URL of an OpenAI-compatible inference service. |
@@ -88,13 +90,21 @@ npm start
 
 ### GitHub API access and rate limits
 
-Anonymous public REST API requests have a lower per-hour limit than authenticated requests. A fine-grained GitHub personal access token with public repository read access may be added as `GITHUB_TOKEN` on the server. The application sends it only to GitHub from the backend. The server explains rate-limit responses to users; retrying repeatedly does not bypass GitHub limits.
+Anonymous public REST API requests have a lower per-hour limit than authenticated requests. A fine-grained GitHub personal access token with public repository read access may be added as `GITHUB_TOKEN` on the server. For local development, copy `.env.example` to `.env`, set `GITHUB_TOKEN=your_token` in the root `.env`, then restart `npm run dev`. Create a fine-grained token with read-only access to public repository contents and issues. The application sends it only to GitHub from the backend. Never paste the token into the browser or commit `.env`. The server explains rate-limit responses and the reset time; retrying repeatedly does not bypass GitHub limits.
 
-### Gemma and local inference
+### Ollama and Gemma
 
-By default, the backend calls the Google Generative Language `generateContent` endpoint using the configured `GEMMA_MODEL` and `GEMMA_API_KEY`. Model identifiers and account/region access can change; check the Google AI documentation and your account's available models before deploying. A missing key, unsupported model, timeout, or provider error is shown explicitly; it is never replaced by a fake answer.
+Local Ollama is the default AI provider. Install [Ollama](https://ollama.com/download), start its service, and download the configured model:
 
-For local inference, set `AI_PROVIDER=openai-compatible`, `AI_BASE_URL`, and `AI_MODEL` to a local service that implements `/chat/completions` (for example, a local model runner configured to serve Gemma). Local inference avoids hosted model-token charges, but requires adequate machine memory/compute and the model server to be running. A hosted provider may have free quotas, regional availability restrictions, and rate limits; terms and quotas are controlled by that provider and can change.
+```sh
+ollama pull gemma3:1b
+```
+
+The API sends grounded conversation messages to Ollama's native `/api/chat` endpoint. Configure `OLLAMA_BASE_URL` and `OLLAMA_MODEL` if your Ollama server or model name differs. Ollama may take longer on the first request while loading the model; RepoGuideAI allows up to two minutes. An uninstalled model is reported with the exact `ollama pull` command rather than replaced with a canned response.
+
+For an Ollama server on another host or in a container, set `OLLAMA_BASE_URL` to a URL that the backend can reach. Ollama's default service is not authentication-protected; do not expose it to the public internet without adding an authenticated private network or gateway.
+
+You can instead select hosted inference with `AI_PROVIDER=google`, `GEMMA_MODEL`, and `GEMMA_API_KEY` (Google model access can vary by account and region), or `AI_PROVIDER=openai-compatible` with `AI_BASE_URL`, `AI_MODEL`, and optional `AI_API_KEY`. Local inference avoids hosted model-token charges but requires disk space, sufficient memory/compute, and a running local model service. Hosted providers may impose free quotas, regional availability restrictions, and rate limits.
 
 ## API overview
 
@@ -111,7 +121,7 @@ For local inference, set `AI_PROVIDER=openai-compatible`, `AI_BASE_URL`, and `AI
 - `PUT /api/users/me`
 - `DELETE /api/auth/account`
 
-Account routes use an HTTP-only, same-site JWT cookie. Saved records are scoped to the authenticated user. AI calls are rate-limited at the API boundary and bounded by input/context sizes and request timeouts.
+Account routes use an HTTP-only, same-site JWT cookie. Saved records are scoped to the authenticated user. AI calls are rate-limited at the API boundary and bounded by input/context sizes and request timeouts. Successful GitHub REST reads are cached in server memory for 60 seconds (up to 250 API responses) to avoid repeating repository lookups on follow-up requests. GitHub's own rate limit still applies to uncached data.
 
 ## Tests and production build
 

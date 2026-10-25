@@ -1,11 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getIssues, getRepository } from './github.js'
+import { clearGitHubCache, getIssues, getRepository } from './github.js'
 
 const previousFetch = globalThis.fetch
 
+test.beforeEach(() => {
+  clearGitHubCache()
+})
+
 test.afterEach(() => {
   globalThis.fetch = previousFetch
+  clearGitHubCache()
 })
 
 test('retrieves repository metadata, languages, root entries, and README from GitHub', async () => {
@@ -61,11 +66,52 @@ test('returns only genuine issues and indicates more GitHub pages', async () => 
 })
 
 test('translates GitHub rate-limit responses into a readable API error', async () => {
-  globalThis.fetch = async () => new Response('{}', { status: 403, headers: { 'x-ratelimit-reset': '0' } })
-  await assert.rejects(() => getRepository('a', 'b'), (error) => error.status === 429 && /rate limit/i.test(error.message))
+  delete process.env.GITHUB_TOKEN
+  const reset = Math.floor(Date.now() / 1000) + 120
+  globalThis.fetch = async () => new Response('{}', { status: 403, headers: { 'x-ratelimit-reset': String(reset) } })
+  await assert.rejects(
+    () => getRepository('a', 'b'),
+    (error) => error.status === 429
+      && /rate limit/i.test(error.message)
+      && /GITHUB_TOKEN/.test(error.message)
+      && /resets at/.test(error.message),
+  )
 })
 
 test('translates GitHub not-found responses', async () => {
   globalThis.fetch = async () => new Response('{}', { status: 404 })
   await assert.rejects(() => getRepository('a', 'b'), (error) => error.status === 404 && /not found/i.test(error.message))
+})
+
+test('caches successful GitHub reads during follow-up requests', async () => {
+  let requests = 0
+  globalThis.fetch = async (url) => {
+    requests += 1
+    const endpoint = String(url)
+    if (endpoint.endsWith('/languages')) return Response.json({ JavaScript: 25 })
+    if (endpoint.endsWith('/contents')) return Response.json([])
+    if (endpoint.endsWith('/readme')) return new Response('{}', { status: 404 })
+    return Response.json({
+      id: 456,
+      name: 'cached',
+      full_name: 'owner/cached',
+      owner: { login: 'owner' },
+      description: null,
+      html_url: 'https://github.com/owner/cached',
+      default_branch: 'main',
+      license: null,
+      stargazers_count: 0,
+      forks_count: 0,
+      open_issues_count: 0,
+      updated_at: '2026-01-01T00:00:00Z',
+      topics: [],
+      archived: false,
+    })
+  }
+
+  const first = await getRepository('owner', 'cached')
+  const second = await getRepository('owner', 'cached')
+  assert.equal(first.repository.full_name, 'owner/cached')
+  assert.equal(second.repository.full_name, 'owner/cached')
+  assert.equal(requests, 4)
 })

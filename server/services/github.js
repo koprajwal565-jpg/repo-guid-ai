@@ -3,6 +3,9 @@ import { parseGitHubRepositoryUrl } from '../lib/github-url.js'
 
 const API = 'https://api.github.com'
 const MAX_TEXT_BYTES = 250_000
+const CACHE_TTL_MS = 60_000
+const MAX_CACHE_ENTRIES = 250
+const responseCache = new Map()
 
 function headers() {
   return {
@@ -14,6 +17,14 @@ function headers() {
 }
 
 async function githubFetch(path) {
+  const now = Date.now()
+  const cached = responseCache.get(path)
+  if (cached && cached.expiresAt > now) {
+    if (cached.status) throw new HttpError(cached.status, cached.message)
+    return cached.data
+  }
+  if (cached) responseCache.delete(path)
+
   let response
   try {
     response = await fetch(`${API}${path}`, {
@@ -27,16 +38,40 @@ async function githubFetch(path) {
     throw new HttpError(502, 'Could not reach GitHub. Check your connection and try again.', 'GITHUB_UNAVAILABLE')
   }
 
-  if (response.status === 404) throw new HttpError(404, 'Repository or file not found. It may be private or unavailable.')
+  if (response.status === 404) {
+    const message = 'Repository or file not found. It may be private or unavailable.'
+    if (responseCache.size >= MAX_CACHE_ENTRIES) {
+      const oldest = responseCache.keys().next().value
+      if (oldest) responseCache.delete(oldest)
+    }
+    responseCache.set(path, { status: 404, message, expiresAt: Date.now() + CACHE_TTL_MS })
+    throw new HttpError(404, message)
+  }
   if (response.status === 403 || response.status === 429) {
     const reset = response.headers.get('x-ratelimit-reset')
-    const resetText = reset ? ` Try again after ${new Date(Number(reset) * 1000).toLocaleTimeString()}.` : ''
-    throw new HttpError(429, `GitHub API rate limit reached.${resetText}`, 'GITHUB_RATE_LIMIT')
+    const resetTime = reset ? Number(reset) * 1000 : NaN
+    const resetText = Number.isFinite(resetTime) && resetTime > Date.now()
+      ? ` The quota resets at ${new Date(resetTime).toLocaleTimeString()}.`
+      : ''
+    const recovery = process.env.GITHUB_TOKEN
+      ? ' Wait for the reset time or check that the configured token has public repository read access.'
+      : ' To restore access sooner, add a GitHub token as GITHUB_TOKEN in the server .env file and restart the server; otherwise wait for the quota reset.'
+    throw new HttpError(429, `GitHub API rate limit reached.${resetText}${recovery}`, 'GITHUB_RATE_LIMIT')
   }
   if (!response.ok) {
     throw new HttpError(502, `GitHub returned an error (${response.status}). Please try again.`, 'GITHUB_ERROR')
   }
-  return response.json()
+  const data = await response.json()
+  if (responseCache.size >= MAX_CACHE_ENTRIES) {
+    const oldest = responseCache.keys().next().value
+    if (oldest) responseCache.delete(oldest)
+  }
+  responseCache.set(path, { data, expiresAt: Date.now() + CACHE_TTL_MS })
+  return data
+}
+
+export function clearGitHubCache() {
+  responseCache.clear()
 }
 
 function decodeContent(content, encoding) {
