@@ -63,8 +63,10 @@ export async function generateGroundedText({ instruction, context, history = [] 
         { role: 'user', content: userText },
       ],
     }
+  } else if (provider === 'disabled') {
+    throw new HttpError(503, 'AI is not configured for this deployment yet. The site operator must configure a hosted model provider before the assistant can respond.', 'AI_NOT_CONFIGURED')
   } else {
-    throw new HttpError(503, 'Unsupported AI_PROVIDER. Use ollama, google, or openai-compatible.', 'AI_NOT_CONFIGURED')
+    throw new HttpError(503, 'Unsupported AI_PROVIDER. Use ollama, google, openai-compatible, or disabled.', 'AI_NOT_CONFIGURED')
   }
 
   let response

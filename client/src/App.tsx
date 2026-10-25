@@ -390,7 +390,7 @@ function Assistant({ analysis }: { analysis: Analysis }) {
   function submit(event: FormEvent) { event.preventDefault(); void sendMessage() }
   return <section className="content-card assistant-card">
     <div className="card-heading"><div><span className="eyebrow">REPOSITORY-GROUNDED AI</span><h2>Ask about this project.</h2></div><Sparkles size={18} /></div>
-    <p className="muted-copy">Answers use information retrieved from {analysis.repository.full_name}. Run Ollama with the configured model, or configure a hosted model provider.</p>
+    <p className="muted-copy">Answers use information retrieved from {analysis.repository.full_name}. AI availability depends on the model provider configured for this deployment.</p>
     <div className="chat-panel">
       <div className="chat-messages" aria-live="polite">{!messages.length && <div className="chat-welcome"><div className="assistant-icon"><Sparkles size={17} /></div><h3>A better first question.</h3><p>Ask about the project, its setup, or where to start. Responses are grounded in retrieved repository evidence.</p><div className="prompt-chips">{prompts.map((prompt) => <button key={prompt} onClick={() => void sendMessage(prompt)} disabled={loading}>{prompt}</button>)}</div></div>}
         {messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${index}-${message.role}`}><span className="chat-role">{message.role === 'user' ? 'YOU' : 'REPOGUIDEAI'}</span><div className="markdown-body"><ReactMarkdown>{message.content}</ReactMarkdown></div></div>)}

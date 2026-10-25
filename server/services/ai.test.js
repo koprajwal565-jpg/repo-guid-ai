@@ -71,6 +71,17 @@ test('reports when the configured Ollama service is unavailable', async () => {
   )
 })
 
+test('reports hosted AI as unconfigured without attempting a provider call', async () => {
+  process.env.AI_PROVIDER = 'disabled'
+  globalThis.fetch = async () => {
+    throw new Error('Disabled AI provider must not make a request')
+  }
+  await assert.rejects(
+    () => generateGroundedText({ instruction: 'Explain the project', context: 'repository evidence' }),
+    (error) => error.status === 503 && error.code === 'AI_NOT_CONFIGURED' && /not configured for this deployment/.test(error.message),
+  )
+})
+
 test('calls the configured Google model and extracts its generated response', async () => {
   process.env.AI_PROVIDER = 'google'
   process.env.GEMMA_API_KEY = 'test-server-key'

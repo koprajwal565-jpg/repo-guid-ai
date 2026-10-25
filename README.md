@@ -134,20 +134,24 @@ Tests cover URL parsing and validation, and GitHub/AI service behavior without r
 
 ## Deployment
 
+### Vercel frontend + Render API
+
+Vercel hosts the Vite/React frontend. Render hosts the Express REST API. Vercel alone does not run this Express server. Deploy in this order so you can configure each service with the other service's URL:
+
+1. Push the project to GitHub and import `koprajwal565-jpg/repo-guid-ai` as a Vercel project. Use the repository root as the project root, framework preset **Vite**, build command `npm run build`, and output directory `dist`. `vercel.json` provides SPA route fallback.
+2. Deploy the API blueprint from <https://render.com/blueprint/new?repo=https://github.com/koprajwal565-jpg/repo-guid-ai>. In the Render blueprint prompt, set `CLIENT_URL` to the exact Vercel origin (for example `https://your-project.vercel.app`). The blueprint generates a private `JWT_SECRET`. It sets `AI_PROVIDER=disabled` so the cloud API does not accidentally try to contact Ollama on the cloud machine's localhost. To enable accounts later, add `MONGODB_URI` for a managed MongoDB deployment such as Atlas. Optionally add `GITHUB_TOKEN` to improve GitHub API rate limits.
+3. Copy the Render web-service origin (for example `https://repoguideai.onrender.com`) and add it to Vercel's **Environment Variables** as `VITE_API_URL`. Apply it to Production (and Preview if desired), then redeploy the frontend.
+4. Verify the Render API at `https://<render-service>.onrender.com/api/health`, and open the Vercel URL. Analyze a public repository to verify cross-origin API requests.
+
+The application uses credentialed API requests for account cookies. Set `CLIENT_URL` to the exact Vercel origin, use HTTPS, and configure the deployed domains appropriately for browser cookie policies. For reliable cross-origin account cookies in browsers that restrict third-party cookies, use custom frontend/API subdomains under the same registrable domain (for example `app.example.com` and `api.example.com`) or deploy frontend and API on one origin.
+
+To enable AI after deployment, configure a provider on the Render API service: set `AI_PROVIDER=google` and `GEMMA_MODEL`/`GEMMA_API_KEY` for hosted Google inference, or set `AI_PROVIDER=ollama`, `OLLAMA_BASE_URL`, and `OLLAMA_MODEL` to an Ollama server reachable from Render. Do not use `127.0.0.1` for Ollama unless Ollama runs in the same service container. `AI_PROVIDER=disabled` clearly reports that AI has not yet been configured.
+
+Render free instances may sleep when idle and have limited resources; MongoDB Atlas free-tier availability, storage, and network constraints depend on its current offering. Vercel free-tier build and bandwidth limits also apply and may change.
+
 ### Single service on Render
 
-`render.yaml` defines a Node web service that builds the Vite client and serves it with Express. Create the service from this repository and configure:
-
-- `CLIENT_URL` to the deployed site origin (for the single-service setup this is the Render service URL).
-- `MONGODB_URI` to a managed MongoDB deployment such as Atlas.
-- `GEMMA_API_KEY` and optionally `GITHUB_TOKEN`.
-- Keep the generated `JWT_SECRET` private.
-
-Render free instances may sleep when idle and have limited resources; MongoDB Atlas free-tier availability, storage, and network constraints depend on its current offering.
-
-### Separate Vercel frontend and Render API
-
-For a separate static frontend, deploy the Vite root project to Vercel using `vercel.json`, then set `VITE_API_URL` at build time to the Render API origin. Set the API's `CLIENT_URL` to the exact Vercel origin. Deploy the API from the same project on Render with build command `npm install && npm run build`, start command `npm start`, and the environment variables above. The API serves a copy of the client too, but a separately deployed frontend can use the configured API base URL.
+Alternatively, the Render blueprint can serve both the built Vite frontend and Express API from the same origin. Use the same Render Blueprint link, set `CLIENT_URL` to the Render service's own HTTPS origin, and skip the Vercel setup. This avoids cross-origin cookie restrictions. The source repository must be pushed to GitHub before either deployment. Actual deployment requires authorized accounts on the hosting provider(s) and is not performed by the build configuration itself.
 
 Do not use localhost URLs in production configuration. Use HTTPS, configure MongoDB network access narrowly, rotate credentials if exposed, and verify `/api/health` after deployment. No deployment is performed by this repository.
 
